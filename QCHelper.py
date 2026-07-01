@@ -310,12 +310,44 @@ else:
         ):
             items["FreeText"].Text = ""
 
-    # Qt key codes for the digit keys 1-9 (same codes for the top row and the
-    # numeric keypad when NumLock is on): Key_1 = 0x31 .. Key_9 = 0x39.
-    DIGIT_SHORTCUT_KEYS = {0x30 + n: n for n in range(1, 10)}
+    # Letter row Q,W,E,R,T,Y,U,I,O maps to buttons 1-9. Qt key codes for letters
+    # equal their uppercase ASCII code: Key_Q = ord('Q') = 0x51, etc.
+    SHORTCUT_LETTERS = "QWERTYUIO"
+    LETTER_SHORTCUT_KEYS = {ord(letter): n for n, letter in enumerate(SHORTCUT_LETTERS, start=1)}
+
+    # Ctrl+W (no Alt) closes the window. Distinct from Ctrl+Option+W (button 2 note)
+    # since it requires Alt to be absent.
+    CLOSE_SHORTCUT_KEY = ord("W")
+
+    # Confirmed live in Resolve (see debug trace): on this setup, Qt's default macOS
+    # Ctrl/Cmd swap is active, so the physical Cmd key is reported as "ControlModifier"
+    # and the physical Control key as "MetaModifier". We deliberately use physical
+    # Ctrl+Option (not Cmd) here to avoid colliding with macOS system shortcuts
+    # (e.g. Cmd+Shift+Q / Cmd+Option+Shift+Q = Log Out).
+    CTRL_MODIFIER_INT_MASK = 0x10000000  # Qt MetaModifier
+    CTRL_MODIFIER_NAME_HINTS = ("meta",)
+
+    # Option/Alt is reported as AltModifier (0x08000000).
+    ALT_MODIFIER_INT_MASK = 0x08000000
+    ALT_MODIFIER_NAME_HINTS = ("alt", "option", "opt")
+
+    def has_modifier(ev, name_hints, int_mask):
+        modifiers = ev.get("Modifiers", None)
+
+        if isinstance(modifiers, dict):
+            for name, pressed in modifiers.items():
+                if pressed and any(hint in str(name).lower() for hint in name_hints):
+                    return True
+            return False
+
+        if isinstance(modifiers, int):
+            return bool(modifiers & int_mask)
+
+        return False
 
     def OnWindowKeyPress(ev):
         key = ev["Key"]
+        print(f"[QCHelper][debug] KeyPress ev={ev}")
 
         if key == 16777216:  # Escape
             dispatcher.ExitLoop()
@@ -325,8 +357,16 @@ else:
             OnSave(ev)
             return
 
-        if key in DIGIT_SHORTCUT_KEYS:
-            save_button_number(DIGIT_SHORTCUT_KEYS[key])
+        has_ctrl = has_modifier(ev, CTRL_MODIFIER_NAME_HINTS, CTRL_MODIFIER_INT_MASK)
+        has_alt = has_modifier(ev, ALT_MODIFIER_NAME_HINTS, ALT_MODIFIER_INT_MASK)
+        print(f"[QCHelper][debug] key={key} ctrl={has_ctrl} alt={has_alt}")
+
+        if key == CLOSE_SHORTCUT_KEY and has_ctrl and not has_alt:
+            dispatcher.ExitLoop()
+            return
+
+        if key in LETTER_SHORTCUT_KEYS and has_ctrl and has_alt:
+            save_button_number(LETTER_SHORTCUT_KEYS[key])
             return
 
     def OnClose(ev):
