@@ -303,9 +303,12 @@ if existing:
     existing.Show()
     existing.Raise()
 else:
-    button_w = 72
-    button_h = 40
+    button_w = 110
+    button_h = 26
     spacing = 8
+    vgroup_spacing = 10
+    window_margin_w = 32
+    window_margin_h = 64
 
     def make_button(n):
         return ui.Button({
@@ -328,14 +331,19 @@ else:
     # to fill the window instead of leaving dead space when resized.
     max_columns = max(ROW_SIZES)
     grid_width = (button_w * max_columns) + (spacing * (max_columns - 1))
-    window_width = grid_width + 28
+    window_width = grid_width + window_margin_w
     free_field_width = grid_width - button_w - spacing
+
+    # Content height = BUTTON_ROWS button rows + 1 free-text row, with vgroup_spacing
+    # between each of the BUTTON_ROWS gaps, plus a margin for title bar/padding.
+    content_height = (BUTTON_ROWS + 1) * button_h + BUTTON_ROWS * vgroup_spacing
+    window_height = content_height + window_margin_h
 
     window = dispatcher.AddWindow(
         {
             "ID": win_id,
             "WindowTitle": "Reviewers Notes",
-            "Geometry": [1080, 140, window_width, 245],
+            "Geometry": [1080, 140, window_width, window_height],
             "WindowFlags": {
                 "Window": True,
                 "WindowStaysOnTopHint": True,
@@ -346,7 +354,7 @@ else:
             }
         },
         ui.VGroup(
-            {"Spacing": 10, "Weight": 1},
+            {"Spacing": vgroup_spacing, "Weight": 1},
             [
                 ui.HGroup({"Spacing": spacing, "Weight": 1}, row)
                 for row in button_rows
@@ -358,7 +366,7 @@ else:
                             {
                                 "ID": "FreeText",
                                 "Text": "",
-                                "PlaceholderText": "Texte libre puis Enter ou Save",
+                                "PlaceholderText": "Enter text, then press Enter or Save",
                                 "MinimumSize": [free_field_width, button_h],
                                 "Weight": 1,
                             }
