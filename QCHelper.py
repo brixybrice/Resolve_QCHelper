@@ -69,6 +69,33 @@ def get_button_content(n):
     return str(entry.get("content", n))
 
 
+def has_button_config(n):
+    return str(n) in BUTTONS_CONFIG
+
+
+MIN_BUTTONS = 6
+BUTTON_ROWS = 3
+
+# Full QWERTY letter scan plus comma: Ctrl+Option+<key> triggers the matching button
+# (see LETTER_SHORTCUT_KEYS below), so the button count is capped at how many keys are
+# available here rather than an arbitrary number.
+SHORTCUT_LETTERS = "QWERTYUIOPASDFGHJKLZXCVBNM,"
+MAX_BUTTONS = len(SHORTCUT_LETTERS)
+
+# Number of buttons is driven by how many entries buttons_config.json has, clamped to
+# [MIN_BUTTONS, MAX_BUTTONS] so the grid never shrinks below a 3x2 layout or grows past
+# what has a keyboard shortcut available.
+TOTAL_BUTTONS = max(MIN_BUTTONS, min(len(BUTTONS_CONFIG), MAX_BUTTONS))
+
+
+def distribute_rows(total, rows):
+    base, remainder = divmod(total, rows)
+    return [base + (1 if i < remainder else 0) for i in range(rows)]
+
+
+ROW_SIZES = distribute_rows(TOTAL_BUTTONS, BUTTON_ROWS)
+
+
 def tc_to_frames(tc, fps):
     hh, mm, ss, ff = [int(x) for x in tc.replace(";", ":").split(":")]
     return (((hh * 60 + mm) * 60) + ss) * fps + ff
@@ -210,7 +237,53 @@ def append_reviewer_note(note_text):
     return "WRITE FAILED"
 
 
+WARNING_WIN_ID = "com.be4post.reviewersnotes.warning"
+
+
+def show_missing_config_warning(button_number):
+    message = (
+        f"Button {button_number} has no entry in buttons_config.json.\n"
+        "Add one to QCHelper_settings/buttons_config.json to use it."
+    )
+
+    existing_warning = ui.FindWindow(WARNING_WIN_ID)
+    if existing_warning:
+        existing_warning.GetItems()["WarningText"].Text = message
+        existing_warning.Show()
+        existing_warning.Raise()
+        return
+
+    warning_window = dispatcher.AddWindow(
+        {
+            "ID": WARNING_WIN_ID,
+            "WindowTitle": "QCHelper - Missing button configuration",
+            "Geometry": [1150, 300, 320, 130],
+            "WindowFlags": {
+                "Window": True,
+                "WindowStaysOnTopHint": True,
+            },
+        },
+        ui.VGroup(
+            {"Spacing": 10},
+            [
+                ui.Label({"ID": "WarningText", "Text": message, "WordWrap": True}),
+                ui.Button({"ID": "WarningOk", "Text": "OK"}),
+            ]
+        )
+    )
+
+    def on_warning_ok(ev=None):
+        warning_window.Hide()
+
+    warning_window.On["WarningOk"].Clicked = on_warning_ok
+    warning_window.Show()
+
+
 def save_button_number(button_number):
+    if not has_button_config(button_number):
+        show_missing_config_warning(button_number)
+        return "NO CONFIG"
+
     note = f"{get_source_tc_at_playhead()} --> {get_button_content(button_number)}"
     return append_reviewer_note(note)
 
@@ -239,20 +312,30 @@ else:
             "ID": f"Btn{n}",
             "Text": get_button_label(n),
             "MinimumSize": [button_w, button_h],
-            "MaximumSize": [button_w, button_h],
+            "Weight": 1,
         })
 
-    row1 = [make_button(i) for i in range(1, 4)]
-    row2 = [make_button(i) for i in range(4, 7)]
-    row3 = [make_button(i) for i in range(7, 10)]
+    button_numbers = iter(range(1, TOTAL_BUTTONS + 1))
+    button_rows = [
+        [make_button(next(button_numbers)) for _ in range(size)]
+        for size in ROW_SIZES
+    ]
 
-    free_field_width = (button_w * 2) + spacing
+    # Initial window width scales with the widest row (3 to 5 columns depending on how
+    # many entries buttons_config.json has). This is only a starting size — the window
+    # itself is user-resizable (no fixed-size flag/Maximum*Size), and buttons/rows use
+    # "Weight" stretch factors instead of a fixed MaximumSize so the grid actually grows
+    # to fill the window instead of leaving dead space when resized.
+    max_columns = max(ROW_SIZES)
+    grid_width = (button_w * max_columns) + (spacing * (max_columns - 1))
+    window_width = grid_width + 28
+    free_field_width = grid_width - button_w - spacing
 
     window = dispatcher.AddWindow(
         {
             "ID": win_id,
             "WindowTitle": "Reviewers Notes",
-            "Geometry": [1080, 140, 260, 245],
+            "Geometry": [1080, 140, window_width, 245],
             "WindowFlags": {
                 "Window": True,
                 "WindowStaysOnTopHint": True,
@@ -265,11 +348,11 @@ else:
         ui.VGroup(
             {"Spacing": 10, "Weight": 1},
             [
-                ui.HGroup({"Spacing": spacing, "Weight": 0}, row1),
-                ui.HGroup({"Spacing": spacing, "Weight": 0}, row2),
-                ui.HGroup({"Spacing": spacing, "Weight": 0}, row3),
+                ui.HGroup({"Spacing": spacing, "Weight": 1}, row)
+                for row in button_rows
+            ] + [
                 ui.HGroup(
-                    {"Spacing": spacing, "Weight": 0},
+                    {"Spacing": spacing, "Weight": 1},
                     [
                         ui.LineEdit(
                             {
@@ -277,7 +360,7 @@ else:
                                 "Text": "",
                                 "PlaceholderText": "Texte libre puis Enter ou Save",
                                 "MinimumSize": [free_field_width, button_h],
-                                "MaximumSize": [free_field_width, button_h],
+                                "Weight": 1,
                             }
                         ),
                         ui.Button(
@@ -285,7 +368,7 @@ else:
                                 "ID": "SaveButton",
                                 "Text": "Save",
                                 "MinimumSize": [button_w, button_h],
-                                "MaximumSize": [button_w, button_h],
+                                "Weight": 0,
                             }
                         )
                     ]
@@ -310,9 +393,9 @@ else:
         ):
             items["FreeText"].Text = ""
 
-    # Letter row Q,W,E,R,T,Y,U,I,O maps to buttons 1-9. Qt key codes for letters
-    # equal their uppercase ASCII code: Key_Q = ord('Q') = 0x51, etc.
-    SHORTCUT_LETTERS = "QWERTYUIO"
+    # SHORTCUT_LETTERS (module-level, "QWERTYUIOPASDFGHJKLZXCVBNM,") maps buttons 1-27
+    # in that order. Qt key codes for letters equal their uppercase ASCII code
+    # (Key_Q = ord('Q') = 0x51, etc.); Key_Comma (0x2c) likewise equals ord(',').
     LETTER_SHORTCUT_KEYS = {ord(letter): n for n, letter in enumerate(SHORTCUT_LETTERS, start=1)}
 
     # Ctrl+W (no Alt) closes the window. Distinct from Ctrl+Option+W (button 2 note)
@@ -381,7 +464,7 @@ else:
     window.On[win_id].Close = OnClose
     window.On["SaveButton"].Clicked = OnSave
 
-    for n in range(1, 10):
+    for n in range(1, TOTAL_BUTTONS + 1):
         window.On[f"Btn{n}"].Clicked = make_handler(n)
 
     window.Show()
