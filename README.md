@@ -4,6 +4,8 @@ DaVinci Resolve (Workflow Integration) plugin for taking QC notes during a timel
 review. It adds a floating "Reviewers Notes" window that lets you quickly annotate the
 clip under the playhead with a precise source timecode.
 
+![Resolve plugin Window](QCHelper_settings/examples/Resolve_plugin_Window.png)        
+
 ## Features
 
 - Automatic detection of the **source timecode** (not the timeline TC) of the clip under
